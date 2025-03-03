@@ -23,7 +23,8 @@ tasks {
         sinceBuild.set("241.0") // Ensure compatibility with 2024.1
         untilBuild.set("242.*") // Allow future IntelliJ versions to use the plugin
         changeNotes.set("""
-            Initial release of Context Builder.
+            Updated initial release of Context Builder.
+            - Added Auto-complete for functions and methods to the intial release
             - Auto-complete file selection
             - Add extra code snippets and prompts to context
             - Copy the final context to clipboard
