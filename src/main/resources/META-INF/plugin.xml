@@ -45,9 +45,9 @@
     </description>
 
 
-    <version>1.0.3</version>
+    <version>1.0.4</version>
 
-    <idea-version since-build="223.0" until-build="241.*" />
+    <idea-version since-build="223.0" until-build="243.*" />
 
     <!-- Product and plugin compatibility requirements. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <depends>com.intellij.modules.platform</depends>
