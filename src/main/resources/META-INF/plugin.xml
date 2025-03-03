@@ -1,0 +1,67 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
+    <id>com.example.contexter</id>
+
+    <!-- Public plugin name should be written in Title Case.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/plugin-overview-page.html#plugin-name -->
+    <name>Contexter - The Gen AI Context Builder</name>
+
+    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
+    <vendor url="https://www.paulfelby.com">Paul Felby</vendor>
+
+    <description>
+        This plugin helps you build a context to ask Gen AI a question. It will automatically search for files in your codebased so you can add the contexts of those files to the context. It also contains extra boxes so that you can add more context like functions and a final prompt. You can add a file named contexter.txt to the root of your repo, and it will pick that up every time and add it to the beginning of your context. This may be a description of your project. As it is built to help you add files, a god idea is to add some comments to the top of each of your files that you are likely to add that explains what they are, this will help the Gen AI answer your prompts better.
+    </description>
+
+    <description>
+        <![CDATA[
+        <h2>🚀 Contexter - The Gen AI Context Builder</h2>
+
+        <p>This plugin helps you craft more effective prompts for Gen AI by allowing you to seamlessly include relevant files and code snippets.</p>
+
+        <p>You can add a <code>contexter.txt</code> file to your repo, and its contents will always appear at the start of your prompt. This is usually used to describe your project, providing essential context for better AI responses.</p>
+
+        <h2>🛠 Tips</h2>
+
+        <h3>📄 Persistent Project Context</h3>
+        <p>Add a <code>contexter.txt</code> file to your repo, and its contents will always appear at the start of your prompt. This is ideal for describing your project and ensuring AI understands the broader context.</p>
+
+        <h3>📌 Add Comments to Your Files</h3>
+        <p><strong>To get the best results</strong>, add meaningful comments at the top of files you want to include.</p>
+
+        <h2>✨ Features</h2>
+
+        <ul>
+            <li>🔍 <strong>Search & Select Files</strong> – Easily find and add files from your codebase to enrich your AI prompt.</li>
+            <li>🗂 <strong>Auto-complete file selection</strong></li>
+            <li>📝 <strong>Add extra code snippets & prompts</strong></li>
+            <li>📋 <strong>Copy final context to clipboard</strong></li>
+            <li>🧠 <strong>Encourages structured comments for better AI responses</strong></li>
+        </ul>
+
+        <p>This will improve the accuracy of AI-generated answers.</p>
+        ]]>
+    </description>
+
+
+    <version>1.0.0</version>
+
+    <idea-version since-build="223.0" until-build="241.*" />
+
+    <!-- Product and plugin compatibility requirements. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+
+    <!-- Extension points defined by the plugin. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow factoryClass="com.felbus.contexter.ContextBuilderToolWindowFactory" id="Context Builder" anchor="right"/>
+    </extensions>
+
+    <actions>
+        <action id="ContextBuilderAction" class="com.felbus.contexter.ContextBuilderAction" text="Open Context Builder">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+
+</idea-plugin>
