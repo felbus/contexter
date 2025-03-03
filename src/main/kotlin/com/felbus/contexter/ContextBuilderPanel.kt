@@ -5,7 +5,6 @@ import com.intellij.openapi.fileChooser.FileChooser
 import com.intellij.openapi.fileChooser.FileChooserDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
-import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileVisitor
@@ -17,7 +16,6 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
-import java.io.File
 import javax.swing.*
 
 /**
@@ -32,7 +30,7 @@ data class FunctionInfo(
 class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout()) {
 
     // -----------------------------------------------------------------------------------------
-    // 1. FILE SUGGESTIONS (Existing Feature)
+    // 1. FILE SUGGESTIONS
     // -----------------------------------------------------------------------------------------
 
     // Collect file suggestions (relative paths) by scanning the project's root directory
@@ -71,11 +69,11 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
     }
 
     // -----------------------------------------------------------------------------------------
-    // 2. FUNCTION/METHOD SUGGESTIONS (New Feature)
+    // 2. FUNCTION/METHOD SUGGESTIONS
     // -----------------------------------------------------------------------------------------
 
     // Collect function definitions from the project and build up a list of FunctionInfo objects.
-    // This is a NAIVE approach: scanning file lines for patterns. You can improve via proper parsing.
+    // This is a NAIVE approach: scanning file lines with minimal checks.
     private val functionList: List<FunctionInfo> = run {
         val collected = mutableListOf<FunctionInfo>()
         val baseDir = project.guessProjectDir()
@@ -86,15 +84,11 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
                     val supportedExtensions = listOf("java", "kt", "py", "js", "ts", "cpp", "h", "c", "cs")
                     if (!file.isDirectory && supportedExtensions.any { file.name.endsWith(".$it") }) {
                         val fileText = VfsUtilCore.loadText(file)
-                        // Very naive regex or searching for function definitions:
-                        // (This won't cover all edge cases in real code!)
+                        // Very naive check for function definitions
                         val lines = fileText.lines()
                         var i = 0
                         while (i < lines.size) {
                             val line = lines[i]
-
-                            // Identify possible function definitions using naive patterns
-                            // (You'll likely replace these with more robust patterns for real usage)
                             if (isPossibleFunctionSignature(line)) {
                                 // Collect the entire function snippet from here
                                 val snippet = collectFunctionSnippet(lines, i)
@@ -119,7 +113,7 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
         collected
     }
 
-    // A simple map from function signature -> the entire snippet
+    // A simple map from function signature -> entire snippet
     private val functionMap: Map<String, String> = functionList.associate { it.signature to it.content }
 
     // Extract just the signatures for autocompletion
@@ -159,14 +153,10 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
 
     // Free text box for adding extra code manually
     private val extraCodeTextArea = JBTextArea(5, 50)
-
-    // Scroll pane for the extra code box
     private val extraCodeScrollPane = JBScrollPane(extraCodeTextArea)
 
     // Text box for adding a final prompt question
     private val promptTextArea = JBTextArea(3, 50)
-
-    // Scroll pane for the prompt box
     private val promptScrollPane = JBScrollPane(promptTextArea)
 
     // -----------------------------------------------------------------------------------------
@@ -273,11 +263,10 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
     private fun addFileContent() {
         val relativePath = autoCompleteFileField.text.trim()
         if (relativePath.isNotEmpty()) {
-            val basePath = project.basePath ?: return
+            val baseDir = project.guessProjectDir() ?: return
             ApplicationManager.getApplication().executeOnPooledThread {
-                val file = File(basePath, relativePath)
-                val virtualFile = VfsUtil.findFileByIoFile(file, true)
-                val fileContent = virtualFile?.let { VfsUtilCore.loadText(it) }
+                val file = baseDir.findFileByRelativePath(relativePath)
+                val fileContent = file?.let { VfsUtilCore.loadText(it) }
                 ApplicationManager.getApplication().invokeLater {
                     if (fileContent != null) {
                         contextTextArea.append("\n// Added file: $relativePath\n")
@@ -337,14 +326,13 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
     }
 
     /**
-     * Loads any existing project context from 'contexter.txt'.
+     * Loads any existing project context from 'contexter.txt', if present at the project root.
      */
     private fun loadProjectContext() {
-        val basePath = project.basePath ?: return
-        val contextFile = File(basePath, "contexter.txt")
+        val baseDir = project.guessProjectDir() ?: return
+        val contexterFile = baseDir.findChild("contexter.txt") // Tries to find "contexter.txt" in root
         ApplicationManager.getApplication().executeOnPooledThread {
-            val virtualFile = VfsUtil.findFileByIoFile(contextFile, true)
-            val fileContent = virtualFile?.let { VfsUtilCore.loadText(it) }
+            val fileContent = contexterFile?.let { VfsUtilCore.loadText(it) }
             ApplicationManager.getApplication().invokeLater {
                 if (fileContent != null) {
                     contextTextArea.append("// Project context from contexter.txt\n")
@@ -363,33 +351,32 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
 
     /**
      * Very naive check if a line might be a function or method definition.
-     * This is just for demonstration. Real usage should rely on proper parsing/regex for each language.
      */
     private fun isPossibleFunctionSignature(line: String): Boolean {
         val trimmed = line.trim()
         // Some extremely naive checks (Kotlin/Java/Python/JS/TS/...)
-        // Expand these as needed, or replace with robust regex:
         return (trimmed.startsWith("fun ") ||
                 trimmed.startsWith("def ") ||
                 trimmed.contains("function ") ||
                 trimmed.contains("static ") && trimmed.contains("(") && trimmed.contains(")") ||
-                trimmed.contains("(") && trimmed.contains(")") && (trimmed.contains("public") || trimmed.contains("private") || trimmed.contains("void")))
+                trimmed.contains("(") && trimmed.contains(")") &&
+                (trimmed.contains("public") || trimmed.contains("private") || trimmed.contains("void")))
     }
 
     /**
-     * Extract a naive "signature" from the line (for autocompletion).
-     * In reality, you'd want to do a more thorough parse.
+     * Extract a naive "signature" from the line for the autocompletion list.
      */
     private fun extractSignature(line: String): String {
-        return line.trim().take(80) // Just a naive snippet of the line
+        // Trim & clip, so it isn't super long
+        return line.trim().take(80)
     }
 
     /**
      * Naively capture the "body" of the function or method starting at [startIndex].
-     * We'll keep reading lines until we reach a closing bracket '}' (for curly brace languages)
+     * We'll keep reading lines until we reach a closing brace '}' (for curly brace languages)
      * or a blank line in the case of Python or if we run out of lines.
      *
-     * This is extremely naive and won't handle nested classes, multi-line definitions, or indentation-based blocks properly.
+     * This is extremely naive and won't handle many real-world cases (nested classes, multi-line definitions, etc.).
      */
     private fun collectFunctionSnippet(lines: List<String>, startIndex: Int): String {
         val sb = StringBuilder()
@@ -410,13 +397,10 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
                 openBraces -= currentLine.count { it == '}' }
             }
 
-            // For Python, perhaps break if we see a blank line or dedent. (Omitted here.)
-            // For now, we break for curly-brace languages if braces are balanced again:
+            // For curly-brace languages: break if balanced again
             if (foundOpenBrace && openBraces <= 0) {
                 break
             }
-            // Or if the language is Python and there's a blank line or something similar
-            // (Not implemented here in detail.)
 
             i++
         }
