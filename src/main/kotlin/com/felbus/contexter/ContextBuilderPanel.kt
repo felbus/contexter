@@ -20,7 +20,20 @@ import java.awt.datatransfer.StringSelection
 import java.io.File
 import javax.swing.*
 
+/**
+ * Represents information about a discovered function/method: its signature (e.g. "foo()")
+ * and the entire snippet containing that function’s body.
+ */
+data class FunctionInfo(
+    val signature: String,
+    val content: String
+)
+
 class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout()) {
+
+    // -----------------------------------------------------------------------------------------
+    // 1. FILE SUGGESTIONS (Existing Feature)
+    // -----------------------------------------------------------------------------------------
 
     // Collect file suggestions (relative paths) by scanning the project's root directory
     private val fileSuggestions: List<String> = run {
@@ -39,7 +52,7 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
         suggestions
     }
 
-    // Create a custom provider for auto-completion
+    // Create a custom provider for auto-completion of file paths
     private val fileSuggestionsProvider = object : TextFieldWithAutoCompletionListProvider<String>(fileSuggestions) {
         override fun getLookupString(item: String): String = item
     }
@@ -53,15 +66,96 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
     ).also {
         val standardHeight = JTextField(20).preferredSize.height
         it.preferredSize = Dimension(300, standardHeight)
-        it.maximumSize = Dimension(Integer.MAX_VALUE, standardHeight)
+        it.maximumSize = Dimension(Int.MAX_VALUE, standardHeight)
         it.minimumSize = Dimension(100, standardHeight)
     }
+
+    // -----------------------------------------------------------------------------------------
+    // 2. FUNCTION/METHOD SUGGESTIONS (New Feature)
+    // -----------------------------------------------------------------------------------------
+
+    // Collect function definitions from the project and build up a list of FunctionInfo objects.
+    // This is a NAIVE approach: scanning file lines for patterns. You can improve via proper parsing.
+    private val functionList: List<FunctionInfo> = run {
+        val collected = mutableListOf<FunctionInfo>()
+        val baseDir = project.guessProjectDir()
+        if (baseDir != null) {
+            VfsUtilCore.visitChildrenRecursively(baseDir, object : VirtualFileVisitor<Any>() {
+                override fun visitFile(file: VirtualFile): Boolean {
+                    // We'll do a simplistic check on file extensions:
+                    val supportedExtensions = listOf("java", "kt", "py", "js", "ts", "cpp", "h", "c", "cs")
+                    if (!file.isDirectory && supportedExtensions.any { file.name.endsWith(".$it") }) {
+                        val fileText = VfsUtilCore.loadText(file)
+                        // Very naive regex or searching for function definitions:
+                        // (This won't cover all edge cases in real code!)
+                        val lines = fileText.lines()
+                        var i = 0
+                        while (i < lines.size) {
+                            val line = lines[i]
+
+                            // Identify possible function definitions using naive patterns
+                            // (You'll likely replace these with more robust patterns for real usage)
+                            if (isPossibleFunctionSignature(line)) {
+                                // Collect the entire function snippet from here
+                                val snippet = collectFunctionSnippet(lines, i)
+                                // Create a naive "signature"
+                                val signature = extractSignature(line).trim()
+                                if (signature.isNotEmpty()) {
+                                    collected.add(
+                                        FunctionInfo(
+                                            signature = signature,
+                                            content = snippet
+                                        )
+                                    )
+                                }
+                            }
+                            i++
+                        }
+                    }
+                    return true
+                }
+            })
+        }
+        collected
+    }
+
+    // A simple map from function signature -> the entire snippet
+    private val functionMap: Map<String, String> = functionList.associate { it.signature to it.content }
+
+    // Extract just the signatures for autocompletion
+    private val functionSuggestions: List<String> = functionList.map { it.signature }
+
+    // Create a provider for function auto-completion
+    private val functionSuggestionsProvider = object : TextFieldWithAutoCompletionListProvider<String>(functionSuggestions) {
+        override fun getLookupString(item: String): String = item
+    }
+
+    // Auto-completion text field for function signatures
+    private val autoCompleteFunctionField = TextFieldWithAutoCompletion<String>(
+        project,
+        functionSuggestionsProvider,
+        true,
+        ""
+    ).also {
+        val standardHeight = JTextField(20).preferredSize.height
+        it.preferredSize = Dimension(300, standardHeight)
+        it.maximumSize = Dimension(Int.MAX_VALUE, standardHeight)
+        it.minimumSize = Dimension(100, standardHeight)
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // 3. CONTEXT TEXT AREA (Main Aggregated Output)
+    // -----------------------------------------------------------------------------------------
 
     // Text area to hold aggregated code context
     private val contextTextArea = JBTextArea(20, 50)
 
     // Scroll pane for the context area
     private val scrollPane = JBScrollPane(contextTextArea)
+
+    // -----------------------------------------------------------------------------------------
+    // 4. EXTRA CODE AND PROMPT TEXT AREAS
+    // -----------------------------------------------------------------------------------------
 
     // Free text box for adding extra code manually
     private val extraCodeTextArea = JBTextArea(5, 50)
@@ -75,8 +169,11 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
     // Scroll pane for the prompt box
     private val promptScrollPane = JBScrollPane(promptTextArea)
 
+    // -----------------------------------------------------------------------------------------
+    // 5. CONSTRUCTOR: BUILD THE UI
+    // -----------------------------------------------------------------------------------------
     init {
-        // File selection panel
+        // 5a. File selection panel
         val filePanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             add(JLabel("File: "))
@@ -99,7 +196,18 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
             add(addButton)
         }
 
-        // Extra code input panel
+        // 5b. Function selection panel (NEW)
+        val functionPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(JLabel("Function: "))
+            add(autoCompleteFunctionField)
+
+            val addFunctionButton = JButton("Add Function")
+            addFunctionButton.addActionListener { addFunctionContent() }
+            add(addFunctionButton)
+        }
+
+        // 5c. Extra code input panel
         val extraCodePanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             add(JLabel("Add extra code:"))
@@ -109,7 +217,7 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
             add(addExtraCodeButton)
         }
 
-        // Prompt input panel
+        // 5d. Prompt input panel
         val promptPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             add(JLabel("Final Prompt Question:"))
@@ -119,7 +227,7 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
             add(addPromptButton)
         }
 
-        // Actions panel (Copy & Clear)
+        // 5e. Actions panel (Copy & Clear)
         val actionsPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
 
@@ -138,22 +246,30 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
             add(clearButton)
         }
 
-        // Main panel
+        // 5f. Main panel
         val mainPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(filePanel)
-            add(extraCodePanel)
-            add(promptPanel)
-            add(scrollPane)
-            add(actionsPanel)
+            add(filePanel)        // Existing file search
+            add(functionPanel)    // NEW function search
+            add(extraCodePanel)   // Extra code
+            add(promptPanel)      // Prompt
+            add(scrollPane)       // Main text area
+            add(actionsPanel)     // Copy & Clear
         }
 
         add(mainPanel, BorderLayout.CENTER)
 
-        // Load project context from contexter.txt
+        // 5g. Load project context from contexter.txt
         loadProjectContext()
     }
 
+    // -----------------------------------------------------------------------------------------
+    // 6. ACTIONS / HELPERS
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * Adds the selected file content to the context.
+     */
     private fun addFileContent() {
         val relativePath = autoCompleteFileField.text.trim()
         if (relativePath.isNotEmpty()) {
@@ -176,6 +292,27 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
         }
     }
 
+    /**
+     * Adds the selected function snippet to the context.
+     */
+    private fun addFunctionContent() {
+        val signature = autoCompleteFunctionField.text.trim()
+        if (signature.isNotEmpty()) {
+            val snippet = functionMap[signature]
+            if (snippet != null) {
+                contextTextArea.append("\n// Added function: $signature\n")
+                contextTextArea.append(snippet)
+                contextTextArea.append("\n")
+            } else {
+                contextTextArea.append("\n// Could not find function snippet: $signature\n")
+            }
+            autoCompleteFunctionField.text = ""
+        }
+    }
+
+    /**
+     * Adds arbitrary code to the context.
+     */
     private fun addExtraCode() {
         val extraCode = extraCodeTextArea.text.trim()
         if (extraCode.isNotEmpty()) {
@@ -186,6 +323,9 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
         }
     }
 
+    /**
+     * Adds the final prompt to the context.
+     */
     private fun addPrompt() {
         val prompt = promptTextArea.text.trim()
         if (prompt.isNotEmpty()) {
@@ -196,6 +336,9 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
         }
     }
 
+    /**
+     * Loads any existing project context from 'contexter.txt'.
+     */
     private fun loadProjectContext() {
         val basePath = project.basePath ?: return
         val contextFile = File(basePath, "contexter.txt")
@@ -212,5 +355,71 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
                 }
             }
         }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // 7. NAIVE FUNCTION-DETECTION HELPERS
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * Very naive check if a line might be a function or method definition.
+     * This is just for demonstration. Real usage should rely on proper parsing/regex for each language.
+     */
+    private fun isPossibleFunctionSignature(line: String): Boolean {
+        val trimmed = line.trim()
+        // Some extremely naive checks (Kotlin/Java/Python/JS/TS/...)
+        // Expand these as needed, or replace with robust regex:
+        return (trimmed.startsWith("fun ") ||
+                trimmed.startsWith("def ") ||
+                trimmed.contains("function ") ||
+                trimmed.contains("static ") && trimmed.contains("(") && trimmed.contains(")") ||
+                trimmed.contains("(") && trimmed.contains(")") && (trimmed.contains("public") || trimmed.contains("private") || trimmed.contains("void")))
+    }
+
+    /**
+     * Extract a naive "signature" from the line (for autocompletion).
+     * In reality, you'd want to do a more thorough parse.
+     */
+    private fun extractSignature(line: String): String {
+        return line.trim().take(80) // Just a naive snippet of the line
+    }
+
+    /**
+     * Naively capture the "body" of the function or method starting at [startIndex].
+     * We'll keep reading lines until we reach a closing bracket '}' (for curly brace languages)
+     * or a blank line in the case of Python or if we run out of lines.
+     *
+     * This is extremely naive and won't handle nested classes, multi-line definitions, or indentation-based blocks properly.
+     */
+    private fun collectFunctionSnippet(lines: List<String>, startIndex: Int): String {
+        val sb = StringBuilder()
+        var i = startIndex
+        var openBraces = 0
+        var foundOpenBrace = false
+
+        while (i < lines.size) {
+            val currentLine = lines[i]
+            sb.appendLine(currentLine)
+
+            // Look for braces
+            if (currentLine.contains("{")) {
+                openBraces += currentLine.count { it == '{' }
+                foundOpenBrace = true
+            }
+            if (currentLine.contains("}")) {
+                openBraces -= currentLine.count { it == '}' }
+            }
+
+            // For Python, perhaps break if we see a blank line or dedent. (Omitted here.)
+            // For now, we break for curly-brace languages if braces are balanced again:
+            if (foundOpenBrace && openBraces <= 0) {
+                break
+            }
+            // Or if the language is Python and there's a blank line or something similar
+            // (Not implemented here in detail.)
+
+            i++
+        }
+        return sb.toString().trim()
     }
 }
