@@ -21,13 +21,10 @@ intellij {
 tasks {
     patchPluginXml {
         sinceBuild.set("241.0") // Ensure compatibility with 2024.1
-        untilBuild.set("242.*") // Allow future IntelliJ versions to use the plugin
+        untilBuild.set("243.*") // Allow future IntelliJ versions to use the plugin
         changeNotes.set("""
             Updated initial release of Context Builder.
-            - Added Auto-complete for functions and methods to the intial release
-            - Auto-complete file selection
-            - Add extra code snippets and prompts to context
-            - Copy the final context to clipboard
+            - New IDE support
         """.trimIndent())
     }
 
