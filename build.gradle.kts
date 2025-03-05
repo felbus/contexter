@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.felbus.contexter"
-version = "1.0.4"
+version = "1.0.5"
 
 repositories {
     mavenCentral()
@@ -23,7 +23,8 @@ tasks {
         sinceBuild.set("241.0") // Ensure compatibility with 2024.1
         untilBuild.set("243.*") // Allow future IntelliJ versions to use the plugin
         changeNotes.set("""
-            Updated initial release of Context Builder.
+            - Improved function context so works well with python type indented functions
+             - Updated readme
             - New IDE support
         """.trimIndent())
     }

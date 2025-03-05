@@ -20,7 +20,7 @@ import javax.swing.*
 
 /**
  * Represents information about a discovered function/method: its signature (e.g. "foo()")
- * and the entire snippet containing that function’s body.
+ * and the entire snippet containing that function's body.
  */
 data class FunctionInfo(
     val signature: String,
@@ -90,8 +90,8 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
                         while (i < lines.size) {
                             val line = lines[i]
                             if (isPossibleFunctionSignature(line)) {
-                                // Collect the entire function snippet from here
-                                val snippet = collectFunctionSnippet(lines, i)
+                                // Collect the entire function snippet
+                                val snippet = collectFunctionSnippet(lines, i, file.extension)
                                 // Create a naive "signature"
                                 val signature = extractSignature(line).trim()
                                 if (signature.isNotEmpty()) {
@@ -346,25 +346,25 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
     }
 
     // -----------------------------------------------------------------------------------------
-    // 7. NAIVE FUNCTION-DETECTION HELPERS
+    // 7. FUNCTION-DETECTION HELPERS WITH IMPROVED PYTHON SUPPORT
     // -----------------------------------------------------------------------------------------
 
     /**
-     * Very naive check if a line might be a function or method definition.
+     * Check if a line might be a function or method definition.
      */
     private fun isPossibleFunctionSignature(line: String): Boolean {
         val trimmed = line.trim()
-        // Some extremely naive checks (Kotlin/Java/Python/JS/TS/...)
-        return (trimmed.startsWith("fun ") ||
-                trimmed.startsWith("def ") ||
-                trimmed.contains("function ") ||
-                trimmed.contains("static ") && trimmed.contains("(") && trimmed.contains(")") ||
+        // Various language-specific checks
+        return (trimmed.startsWith("fun ") || // Kotlin
+                trimmed.startsWith("def ") || // Python
+                trimmed.contains("function ") || // JavaScript/TypeScript
+                trimmed.contains("static ") && trimmed.contains("(") && trimmed.contains(")") || // Java/C#
                 trimmed.contains("(") && trimmed.contains(")") &&
-                (trimmed.contains("public") || trimmed.contains("private") || trimmed.contains("void")))
+                (trimmed.contains("public") || trimmed.contains("private") || trimmed.contains("void"))) // Java/C#/C++
     }
 
     /**
-     * Extract a naive "signature" from the line for the autocompletion list.
+     * Extract a "signature" from the line for the autocompletion list.
      */
     private fun extractSignature(line: String): String {
         // Trim & clip, so it isn't super long
@@ -372,23 +372,110 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
     }
 
     /**
-     * Naively capture the "body" of the function or method starting at [startIndex].
-     * We'll keep reading lines until we reach a closing brace '}' (for curly brace languages)
-     * or a blank line in the case of Python or if we run out of lines.
-     *
-     * This is extremely naive and won't handle many real-world cases (nested classes, multi-line definitions, etc.).
+     * Collect the full function body based on the language.
+     * For Python, we track indentation to capture the complete function.
+     * For brace languages, we track opening and closing braces.
      */
-    private fun collectFunctionSnippet(lines: List<String>, startIndex: Int): String {
+    private fun collectFunctionSnippet(lines: List<String>, startIndex: Int, fileExtension: String?): String {
+        val sb = StringBuilder()
+
+        // Handle Python differently
+        if (fileExtension == "py") {
+            return collectPythonFunctionSnippet(lines, startIndex)
+        } else {
+            // For curly brace languages
+            return collectBraceFunctionSnippet(lines, startIndex)
+        }
+    }
+
+    /**
+     * Collect Python function by tracking indentation levels.
+     */
+    private fun collectPythonFunctionSnippet(lines: List<String>, startIndex: Int): String {
+        val sb = StringBuilder()
+
+        // Add the function signature line
+        sb.appendLine(lines[startIndex])
+
+        // Determine the indentation level of the first line of the function body
+        var i = startIndex + 1
+        while (i < lines.size && (lines[i].isBlank() || lines[i].trim().startsWith("#"))) {
+            sb.appendLine(lines[i]) // Preserve blank lines and comments before body starts
+            i++
+        }
+
+        if (i >= lines.size) {
+            return sb.toString().trim()
+        }
+
+        // Get indentation of first body line
+        val functionBodyIndent = getIndentLevel(lines[i])
+
+        // Function definition must have some indentation to count as a body
+        if (functionBodyIndent == 0) {
+            return sb.toString().trim()
+        }
+
+        // Add all lines with equal or greater indentation
+        while (i < lines.size) {
+            val currentLine = lines[i]
+            val currentIndent = getIndentLevel(currentLine)
+
+            // If we hit a line with less indentation than the function body,
+            // and it's not a blank line or comment, we've exited the function
+            if (!currentLine.isBlank() && !currentLine.trim().startsWith("#") && currentIndent < functionBodyIndent) {
+                break
+            }
+
+            sb.appendLine(currentLine)
+            i++
+        }
+
+        return sb.toString().trim()
+    }
+
+    /**
+     * Get the indentation level of a line by counting spaces and tabs.
+     */
+    private fun getIndentLevel(line: String): Int {
+        var indent = 0
+        for (c in line) {
+            if (c == ' ') indent++
+            else if (c == '\t') indent += 4 // Count a tab as 4 spaces
+            else break
+        }
+        return indent
+    }
+
+    /**
+     * Collect function for curly brace languages by tracking brace balance.
+     */
+    private fun collectBraceFunctionSnippet(lines: List<String>, startIndex: Int): String {
         val sb = StringBuilder()
         var i = startIndex
         var openBraces = 0
         var foundOpenBrace = false
 
+        // Add first line
+        sb.appendLine(lines[i])
+        i++
+
+        // Check if the first line already has an open brace
+        if (lines[startIndex].contains("{")) {
+            openBraces += lines[startIndex].count { it == '{' }
+            foundOpenBrace = true
+        }
+
+        // If the first line has closing braces too, count them
+        if (lines[startIndex].contains("}")) {
+            openBraces -= lines[startIndex].count { it == '}' }
+        }
+
+        // Parse the rest of the function body
         while (i < lines.size) {
             val currentLine = lines[i]
-            sb.appendLine(currentLine)
 
-            // Look for braces
+            // Count braces in this line
             if (currentLine.contains("{")) {
                 openBraces += currentLine.count { it == '{' }
                 foundOpenBrace = true
@@ -397,13 +484,17 @@ class ContextBuilderPanel(private val project: Project) : JPanel(BorderLayout())
                 openBraces -= currentLine.count { it == '}' }
             }
 
-            // For curly-brace languages: break if balanced again
+            // Add the line to our snippet
+            sb.appendLine(currentLine)
+
+            // For curly-brace languages: break if braces are balanced again
             if (foundOpenBrace && openBraces <= 0) {
                 break
             }
 
             i++
         }
+
         return sb.toString().trim()
     }
 }

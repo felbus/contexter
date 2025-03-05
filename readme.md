@@ -24,4 +24,8 @@ Add a `contexter.txt` file to your repo, and its contents will always appear at 
 - 📋 **Copy final context to clipboard**
 - 🧠 **Encourages structured comments for better AI responses**
 
+## ✨ Language support
+- Works with most languages
+- Tested with Java, Javascript, Python 
+ 
 This will improve the accuracy of AI-generated answers. 🚀  
