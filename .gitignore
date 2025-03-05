@@ -6,6 +6,7 @@ word_embedding_model_cache_dir/
 .DS_Store
 .sublime-project
 .sublime-workspace
+.gradle
 .idea
 .run
 .chroma
